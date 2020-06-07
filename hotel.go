@@ -5,10 +5,13 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+	"os"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jinzhu/gorm"
 	_ "github.com/jinzhu/gorm/dialects/mysql"
+	"github.com/dgrijalva/jwt-go"
 	"rest-api/auth"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -35,11 +38,59 @@ func main() {
 		v1.POST("/signin", signIn)
 		v1.POST("/hotel", createHotel)
 		v1.POST("/room", createRoom)
-		v1.GET("/available-room", availableRoom)
+		v1.GET("/available-room", TokenAuthMiddleware(), availableRoom)
 	}
 	router.Run()
 
 }
+
+func ExtractToken(r *http.Request) string {
+	bearToken := r.Header.Get("Authorization")
+	//normally Authorization the_token_xxx
+	strArr := strings.Split(bearToken, " ")
+	if len(strArr) == 2 {
+	   return strArr[1]
+	}
+	return ""
+  }
+
+func VerifyToken(r *http.Request) (*jwt.Token, error) {
+	tokenString := ExtractToken(r)
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+	   //Make sure that the token method conform to "SigningMethodHMAC"
+	   if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+		  return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+	   }
+	   return []byte(os.Getenv("ACCESS_SECRET")), nil
+	})
+	if err != nil {
+	   return nil, err
+	}
+	return token, nil
+}
+
+func TokenValid(r *http.Request) error {
+	token, err := VerifyToken(r)
+	if err != nil {
+	   return err
+	}
+	if _, ok := token.Claims.(jwt.Claims); !ok && !token.Valid {
+	   return err
+	}
+	return nil
+}
+
+func TokenAuthMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+	   err := TokenValid(c.Request)
+	   if err != nil {
+		  c.JSON(http.StatusUnauthorized, err.Error())
+		  c.Abort()
+		  return
+	   }
+	   c.Next()
+	}
+  }
 
 type (
 	user struct {
