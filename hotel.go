@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jinzhu/gorm"
 	_ "github.com/jinzhu/gorm/dialects/mysql"
+	"rest-api/auth"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -43,6 +44,7 @@ func main() {
 type (
 	user struct {
 		gorm.Model
+		ID uint64 `json:"id"`
 		Email string `json:"email"`
 		Password   string    `gorm:"size:100;not null;" json:"password"`
 		// Password []byte `json:"password"`
@@ -66,17 +68,9 @@ type (
 	}
 )
 
-func Hash(password string) ([]byte, error) {
-	return bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-}
-
-func VerifyPassword(hashedPassword, password string) error {
-	return bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password))
-}
-
 func signUp(c *gin.Context) {
 	email := c.PostForm("email")
-	hashedPassword, err := Hash(c.PostForm("password"))
+	hashedPassword, err := security.Hash(c.PostForm("password"))
 	passwordAsString := string(hashedPassword)
 	if err != nil {
         c.JSON(http.StatusInternalServerError, gin.H{"status": http.StatusInternalServerError, "message": "Bycrypt error",})
@@ -99,17 +93,21 @@ func signIn(c *gin.Context) {
     admin :=user{}
 	db.Where("email = ?", email).Find(&admin)
 
-	err := VerifyPassword(admin.Password, enteredPassword)
+	err := security.VerifyPassword(admin.Password, enteredPassword)
 	if err != nil && err == bcrypt.ErrMismatchedHashAndPassword {
 		c.JSON(http.StatusUnauthorized, gin.H{"status": http.StatusUnauthorized, "message": "Wrong credentials"})
 		return
 	}
+	token, err := security.CreateToken(admin.ID)
+  	if err != nil {
+     	c.JSON(http.StatusUnprocessableEntity, err.Error())
+     	return
+  	}
+  	
 	fmt.Printf("%+v\n", admin)
-	c.JSON(http.StatusCreated, gin.H{"status": http.StatusCreated, "message": "Logged In"})
+	c.JSON(http.StatusCreated, gin.H{"status": http.StatusCreated, "message": "Logged In", "token": token})
 	
 }
-
-
 
 func createHotel(c *gin.Context) {
 	hotel := hotel{Name: c.PostForm("name"), Area: c.PostForm("area")}
